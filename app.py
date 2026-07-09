@@ -9,15 +9,15 @@ from backend import (
     build_week_structure, fill_schedule, suggest_room, enable_wrap_text_everywhere,
 )
 
-st.set_page_config(page_title="Riverway Room Schedule Auto-Filler", layout="wide")
-st.title("📅 Riverway Room Schedule Auto-Filler")
+st.set_page_config(page_title="Riverway Room Scheduler", layout="wide")
+st.title("📅 Riverway Room Scheduler")
 st.caption("Upload the term's course list, review the room/time assignments, and download a filled-in schedule.")
 
 # ----------------------------------------------------------------------------
 # Step 1: Upload
 # ----------------------------------------------------------------------------
 uploaded_file = st.file_uploader(
-    "Upload the workbook (must contain a 'Data' sheet and a 'Template' or 'main' sheet)",
+    "Upload the workbook (must contain a 'Data' sheet and a 'Template' sheet, and must be a '.xlsx' file)",
     type=["xlsx"],
 )
 
@@ -43,7 +43,7 @@ if "Data" not in wb.sheetnames:
 
 TEMPLATE_SHEET_NAME = "Template" if "Template" in wb.sheetnames else "main"
 if TEMPLATE_SHEET_NAME not in wb.sheetnames:
-    st.error("No 'Template' or 'main' sheet found - one of these is needed as the room-grid layout to copy.")
+    st.error("No 'Template' sheet found - it is needed as the room-grid layout to copy.")
     st.stop()
 
 template_ws = wb[TEMPLATE_SHEET_NAME]
@@ -127,27 +127,33 @@ if "assignments_df" not in st.session_state:
         })
     st.session_state["assignments_df"] = pd.DataFrame(records)
 
-edited_df = st.data_editor(
-    st.session_state["assignments_df"],
-    column_config={
-        "Course Row": st.column_config.NumberColumn(disabled=True),
-        "Course #": st.column_config.TextColumn(disabled=True),
-        "Name": st.column_config.TextColumn(disabled=True),
-        "Instructor": st.column_config.TextColumn(disabled=True),
-        "Start Date": st.column_config.TextColumn(disabled=True),
-        "End Date": st.column_config.TextColumn(disabled=True),
-        "Days": st.column_config.TextColumn(disabled=True),
-        "Notes": st.column_config.TextColumn(disabled=True),
-        "Room": st.column_config.SelectboxColumn(options=room_names, required=True),
-        "Day/Evening": st.column_config.SelectboxColumn(options=["Day", "Evening"], required=True),
-        "Start Time": st.column_config.TextColumn(help="e.g. 8:30am"),
-        "End Time": st.column_config.TextColumn(help="e.g. 4:30pm"),
-    },
-    disabled=False,
-    hide_index=True,
-    use_container_width=True,
-    key="assignment_editor",
-)
+with st.form("assignment_form"):
+    edited_df = st.data_editor(
+        st.session_state["assignments_df"],
+        column_config={
+            "Course Row": st.column_config.NumberColumn(disabled=True),
+            "Course #": st.column_config.TextColumn(disabled=True),
+            "Name": st.column_config.TextColumn(disabled=True),
+            "Instructor": st.column_config.TextColumn(disabled=True),
+            "Start Date": st.column_config.TextColumn(disabled=True),
+            "End Date": st.column_config.TextColumn(disabled=True),
+            "Days": st.column_config.TextColumn(disabled=True),
+            "Notes": st.column_config.TextColumn(disabled=True),
+            "Room": st.column_config.SelectboxColumn(options=room_names, required=True),
+            "Day/Evening": st.column_config.SelectboxColumn(options=["Day", "Evening"], required=True),
+            "Start Time": st.column_config.TextColumn(help="e.g. 8:30am"),
+            "End Time": st.column_config.TextColumn(help="e.g. 4:30pm"),
+        },
+        disabled=False,
+        hide_index=True,
+        use_container_width=True,
+        key="assignment_editor",
+    )
+    generate_clicked = st.form_submit_button("Generate Filled Schedule", type="primary")
+
+# Saving back to session_state happens only once, on submit (or on the very first
+# render) - not on every keystroke - which is what stops rapid edits from getting
+# clobbered by an in-progress rerun.
 st.session_state["assignments_df"] = edited_df
 
 # ----------------------------------------------------------------------------
@@ -155,17 +161,15 @@ st.session_state["assignments_df"] = edited_df
 # ----------------------------------------------------------------------------
 st.subheader("3. Generate the filled schedule")
 
-missing = edited_df[
-    edited_df["Room"].isna() | edited_df["Day/Evening"].isna()
-    | (edited_df["Start Time"].str.strip() == "") | (edited_df["End Time"].str.strip() == "")
-]
-
-if len(missing) > 0:
-    st.warning(f"{len(missing)} course row(s) are still missing Room / Day-Evening / times. Fill those in above before generating.")
-
-generate_clicked = st.button("Generate Filled Schedule", type="primary", disabled=len(missing) > 0)
-
 if generate_clicked:
+    missing = edited_df[
+        edited_df["Room"].isna() | edited_df["Day/Evening"].isna()
+        | (edited_df["Start Time"].str.strip() == "") | (edited_df["End Time"].str.strip() == "")
+    ]
+    if len(missing) > 0:
+        st.warning(f"{len(missing)} course row(s) are still missing Room / Day-Evening / times. Fill those in above and click Generate again.")
+        st.stop()
+
     with st.spinner("Building the schedule..."):
         wb_out = openpyxl.load_workbook(io.BytesIO(st.session_state["wb_bytes"]))
         template_ws_out = wb_out[TEMPLATE_SHEET_NAME]
