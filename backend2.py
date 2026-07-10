@@ -154,24 +154,38 @@ def required_weekdays(data_rows):
 
 
 # ----------------------------------------------------------------------------
-# WEEK-COLUMN CALCULATION (per weekday, independent of the other weekdays)
+# WEEK-COLUMN CALCULATION (shared term range across all weekday sheets)
 # ----------------------------------------------------------------------------
-def week_dates_for_weekday(data_rows, weekday_idx):
+def term_date_range(data_rows):
     """
-    All actual calendar dates matching this weekday, spanning from the
-    earliest start to the latest end among courses that meet on it.
+    The overall term span across ALL courses (every weekday combined) -
+    the earliest start date and the latest end date in the whole Data sheet.
+    Every weekday sheet uses this same range so, e.g., the Monday sheet still
+    shows every week of the term even if Monday only has classes in October.
     """
-    relevant = [c for c in data_rows if weekday_idx in weekdays_for_days_string(c['days'])]
-    if not relevant:
-        return []
-    min_start = min(c['start'] for c in relevant)
-    max_end = max(c['end'] for c in relevant)
+    if not data_rows:
+        return None, None
+    min_start = min(c['start'] for c in data_rows)
+    max_end = max(c['end'] for c in data_rows)
+    return min_start, max_end
 
-    # first occurrence of this weekday on/after min_start
-    delta = (weekday_idx - min_start.weekday()) % 7
-    d = min_start + timedelta(days=delta)
+
+def week_dates_for_weekday(weekday_idx, term_min_start, term_max_end):
+    """
+    Every calendar date matching this weekday across the FULL term range
+    (term_min_start .. term_max_end), regardless of whether any course
+    meeting on this particular weekday is active that week. Shading for
+    "no class this week" is handled separately, per-course, when the rows
+    are filled in.
+    """
+    if term_min_start is None or term_max_end is None:
+        return []
+
+    # first occurrence of this weekday on/after term_min_start
+    delta = (weekday_idx - term_min_start.weekday()) % 7
+    d = term_min_start + timedelta(days=delta)
     dates = []
-    while d <= max_end:
+    while d <= term_max_end:
         dates.append(d)
         d += timedelta(days=7)
     return dates
@@ -333,8 +347,10 @@ def build_workbook(data_rows, assignments, school_name="Night School"):
     needed_weekdays = required_weekdays(data_rows)
     placed_counts = {}
 
+    term_min_start, term_max_end = term_date_range(data_rows)
+
     for weekday_idx in needed_weekdays:
-        dates = week_dates_for_weekday(data_rows, weekday_idx)
+        dates = week_dates_for_weekday(weekday_idx, term_min_start, term_max_end)
         ws = build_sheet_for_weekday(wb, weekday_idx, dates, school_name=school_name)
 
         row_idx = FIRST_COURSE_ROW
