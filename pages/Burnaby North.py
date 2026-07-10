@@ -7,9 +7,9 @@ import openpyxl
 from backend2 import load_data_rows, required_weekdays, build_workbook, WEEKDAY_NAMES
 
 st.set_page_config(page_title="Night School Weekday Schedule Auto-Filler", layout="wide")
-st.title("🌙 Night School Weekday Schedule Auto-Filler")
+st.title("🌙 North Night School Scheduler")
 st.caption(
-    "Upload the term's course list, fill in Room + Time for each course, and get back one sheet "
+    "Upload the course list, fill in Room + Time for each course, and get back one sheet "
     "per weekday with every class's active weeks shaded automatically."
 )
 
