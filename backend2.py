@@ -40,6 +40,7 @@ CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 LEFT_WRAP = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
 THIN_SIDE = Side(style="thin", color="BFBFBF")
+THICK_SIDE = Side(style="medium", color="000000")  # Clean, pronounced month separator
 THIN_BORDER = Border(left=THIN_SIDE, right=THIN_SIDE, top=THIN_SIDE, bottom=THIN_SIDE)
 
 HEADER_FILL = PatternFill(patternType="solid", fgColor="D9D9D9")
@@ -96,8 +97,6 @@ def load_data_rows(ws_data):
         if req not in headers:
             raise ValueError(f"Data sheet is missing required column: '{req}'")
 
-    # base year comes straight from the first Starts date in Data itself -
-    # there's no template to borrow a year from this time.
     first_start_raw = None
     for r in range(2, ws_data.max_row + 1):
         v = ws_data.cell(row=r, column=headers['starts']).value
@@ -109,7 +108,6 @@ def load_data_rows(ws_data):
     if hasattr(first_start_raw, 'year'):
         base_year = first_start_raw.year
     else:
-        # text date with no year info yet - assume current year, corrected below if needed
         base_year = datetime.now().year
 
     rows = []
@@ -158,30 +156,31 @@ def required_weekdays(data_rows):
 # ----------------------------------------------------------------------------
 def term_date_range(data_rows):
     """
-    The overall term span across ALL courses (every weekday combined) -
-    the earliest start date and the latest end date in the whole Data sheet.
-    Every weekday sheet uses this same range so, e.g., the Monday sheet still
-    shows every week of the term even if Monday only has classes in October.
+    Returns the expanded date range stretching from the 1st day of the earliest 
+    month to the final day of the latest month across all courses.
     """
     if not data_rows:
         return None, None
     min_start = min(c['start'] for c in data_rows)
     max_end = max(c['end'] for c in data_rows)
-    return min_start, max_end
+    
+    # Expand to the 1st day of the earliest start month
+    start_bound = min_start.replace(day=1)
+    
+    # Expand to the last day of the latest end month
+    if max_end.month == 12:
+        end_bound = max_end.replace(year=max_end.year + 1, month=1, day=1) - timedelta(days=1)
+    else:
+        end_bound = max_end.replace(month=max_end.month + 1, day=1) - timedelta(days=1)
+        
+    return start_bound, end_bound
 
 
 def week_dates_for_weekday(weekday_idx, term_min_start, term_max_end):
-    """
-    Every calendar date matching this weekday across the FULL term range
-    (term_min_start .. term_max_end), regardless of whether any course
-    meeting on this particular weekday is active that week. Shading for
-    "no class this week" is handled separately, per-course, when the rows
-    are filled in.
-    """
     if term_min_start is None or term_max_end is None:
         return []
 
-    # first occurrence of this weekday on/after term_min_start
+    # first occurrence of this weekday on/after term_min_start boundary
     delta = (weekday_idx - term_min_start.weekday()) % 7
     d = term_min_start + timedelta(days=delta)
     dates = []
@@ -252,7 +251,6 @@ def build_sheet_for_weekday(wb, weekday_idx, dates, school_name="Night School"):
     ws.row_dimensions[HEADER_ROW].height = HEADER_ROW_HEIGHT
     ws.row_dimensions[DATE_ROW].height = DATE_ROW_HEIGHT
 
-    # keep panes free-scrolling per request - no freeze_panes here
     return ws
 
 
@@ -275,7 +273,6 @@ def add_course_row(ws, row_idx, course, room, time_str, dates_for_weekday, weekd
         cell.border = THIN_BORDER
         cell.alignment = LEFT_WRAP if col_idx in (1, 8) else CENTER
 
-    # Start / End columns: show just the date, no time-of-day
     ws.cell(row=row_idx, column=5).number_format = "d-mmm-yyyy"
     ws.cell(row=row_idx, column=6).number_format = "d-mmm-yyyy"
 
@@ -295,7 +292,7 @@ def add_course_row(ws, row_idx, course, room, time_str, dates_for_weekday, weekd
 
 def add_legend(ws, row_idx):
     cell = ws.cell(row=row_idx, column=1, value="S = Start of course, X = End of course, E = School closed "
-                                                  "(enter manually on the relevant week as needed)")
+                                                 "(enter manually on the relevant week as needed)")
     cell.font = LEGEND_FONT
 
 
@@ -314,35 +311,17 @@ def enable_wrap_text_everywhere(wb):
 
 
 def style_columns(ws, last_week_col):
-    # Fixed, readable widths for the fixed columns
     fixed_widths = {1: 26, 2: 12, 3: 8, 4: 16, 5: 13, 6: 13, 7: 11, 8: 22}
     for col, width in fixed_widths.items():
         ws.column_dimensions[get_column_letter(col)].width = width
 
-    # Narrow, near-square columns for every week-date column
     for col in range(FIRST_WEEK_COL, last_week_col + 1):
         ws.column_dimensions[get_column_letter(col)].width = WEEK_COL_WIDTH
 
 
-def autosize_columns(ws, min_width=10, max_width=40):
-    # Retained for the fixed left-hand columns only; week columns are kept
-    # deliberately narrow/square by style_columns() and are excluded here.
-    widths = {}
-    for row in ws.iter_rows(min_col=1, max_col=FIRST_WEEK_COL - 1):
-        for cell in row:
-            if cell.value is not None:
-                widths[cell.column] = max(widths.get(cell.column, 0), len(str(cell.value)))
-    for col, w in widths.items():
-        ws.column_dimensions[get_column_letter(col)].width = max(min_width, min(max_width, w + 2))
-
-
 def build_workbook(data_rows, assignments, school_name="Night School"):
-    """
-    assignments: dict keyed by course['row'] -> {'room': str, 'time': str}
-    Returns an openpyxl Workbook with one sheet per required weekday.
-    """
     wb = Workbook()
-    wb.remove(wb.active)  # drop the default blank sheet
+    wb.remove(wb.active)
 
     needed_weekdays = required_weekdays(data_rows)
     placed_counts = {}
@@ -368,6 +347,28 @@ def build_workbook(data_rows, assignments, school_name="Night School"):
 
         last_week_col = FIRST_WEEK_COL + max(len(dates) - 1, 0)
         style_columns(ws, last_week_col)
+        
+        # --------------------------------------------------------------------
+        # Stylistic Pass: Apply Thick Right Border Between Distinct Months
+        # --------------------------------------------------------------------
+        curr_col = FIRST_WEEK_COL
+        month_groups = group_dates_by_month(dates)
+        
+        # We don't need a right border on the very last month column group
+        for _, month_dates in month_groups[:-1]:
+            curr_col += len(month_dates)
+            target_col_idx = curr_col - 1
+            
+            # Apply down through headers, dates, and all scheduled data rows
+            for r in range(HEADER_ROW, row_idx):
+                cell = ws.cell(row=r, column=target_col_idx)
+                cell.border = Border(
+                    left=cell.border.left,
+                    top=cell.border.top,
+                    bottom=cell.border.bottom,
+                    right=THICK_SIDE
+                )
+
         ws.sheet_view.showGridLines = False
 
     enable_wrap_text_everywhere(wb)
