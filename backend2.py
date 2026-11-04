@@ -152,6 +152,43 @@ def required_weekdays(data_rows):
 
 
 # ----------------------------------------------------------------------------
+# YEAR OVERRIDE
+# ----------------------------------------------------------------------------
+def detect_start_year(data_rows):
+    """Year of the earliest course start date found in the Data sheet."""
+    return min(c['start'] for c in data_rows).year
+
+
+def _shift_date_years(d, delta):
+    try:
+        return d.replace(year=d.year + delta)
+    except ValueError:  # Feb 29 landing on a non-leap year
+        return d.replace(year=d.year + delta, day=28)
+
+
+def shift_rows_to_year(data_rows, target_year):
+    """
+    Moves every course's start/end date so the EARLIEST start falls in
+    `target_year`. All dates move by the same number of years, so terms that
+    cross New Year (e.g. Sep -> Jan) keep their shape. Returns new row dicts.
+    """
+    delta = target_year - detect_start_year(data_rows)
+    if delta == 0:
+        return data_rows
+    return [
+        {**c,
+         'start': _shift_date_years(c['start'], delta),
+         'end': _shift_date_years(c['end'], delta)}
+        for c in data_rows
+    ]
+
+
+def suggest_term_label(data_rows):
+    """FALL for terms starting Jul-Dec, otherwise SPRING (Jan-Jun)."""
+    return "FALL" if min(c['start'] for c in data_rows).month >= 7 else "SPRING"
+
+
+# ----------------------------------------------------------------------------
 # WEEK-COLUMN CALCULATION (shared term range across all weekday sheets)
 # ----------------------------------------------------------------------------
 def term_date_range(data_rows):
@@ -205,7 +242,7 @@ def group_dates_by_month(dates):
 # ----------------------------------------------------------------------------
 # WORKBOOK CONSTRUCTION
 # ----------------------------------------------------------------------------
-def build_sheet_for_weekday(wb, weekday_idx, dates, school_name="Night School"):
+def build_sheet_for_weekday(wb, weekday_idx, dates, school_name="Night School", term_label="FALL"):
     weekday_name = WEEKDAY_NAMES[weekday_idx]
     ws = wb.create_sheet(title=weekday_name)
 
@@ -213,7 +250,7 @@ def build_sheet_for_weekday(wb, weekday_idx, dates, school_name="Night School"):
     last_col = FIRST_WEEK_COL + max(len(dates) - 1, 0)
 
     title_cell = ws.cell(row=TITLE_ROW, column=1,
-                          value=f"{school_name} \u2013 Room Schedule \u2013 FALL {year_label} \u2013 {weekday_name}")
+                          value=f"{school_name} \u2013 Room Schedule \u2013 {term_label} {year_label} \u2013 {weekday_name}")
     ws.merge_cells(start_row=TITLE_ROW, start_column=1, end_row=TITLE_ROW, end_column=max(last_col, 8))
     title_cell.font = TITLE_FONT
     title_cell.alignment = CENTER
@@ -319,7 +356,7 @@ def style_columns(ws, last_week_col):
         ws.column_dimensions[get_column_letter(col)].width = WEEK_COL_WIDTH
 
 
-def build_workbook(data_rows, assignments, school_name="Night School"):
+def build_workbook(data_rows, assignments, school_name="Night School", term_label="FALL"):
     wb = Workbook()
     wb.remove(wb.active)
 
@@ -330,7 +367,7 @@ def build_workbook(data_rows, assignments, school_name="Night School"):
 
     for weekday_idx in needed_weekdays:
         dates = week_dates_for_weekday(weekday_idx, term_min_start, term_max_end)
-        ws = build_sheet_for_weekday(wb, weekday_idx, dates, school_name=school_name)
+        ws = build_sheet_for_weekday(wb, weekday_idx, dates, school_name=school_name, term_label=term_label)
 
         row_idx = FIRST_COURSE_ROW
         for course in data_rows:
