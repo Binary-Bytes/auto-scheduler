@@ -4,7 +4,10 @@ import streamlit as st
 import pandas as pd
 import openpyxl
 
-from backend2 import load_data_rows, required_weekdays, build_workbook, WEEKDAY_NAMES
+from backend2 import (
+    load_data_rows, required_weekdays, build_workbook, WEEKDAY_NAMES,
+    detect_start_year, shift_rows_to_year, suggest_term_label,
+)
 
 st.set_page_config(page_title="Night School Weekday Schedule Auto-Filler", layout="wide")
 st.title("🌙 North Night School Scheduler")
@@ -58,6 +61,26 @@ st.success(
 
 school_name = st.text_input("School name (used in each sheet's title bar)", value="Night School")
 
+# Year / term override: the dates in the uploaded file may carry the wrong year
+# (e.g. a Jan-Jun 2027 list typed in as 2026). Everything downstream - week
+# columns, month headers, Start/End cells, sheet title - follows this choice.
+file_year = detect_start_year(data_rows)
+yc1, yc2 = st.columns(2)
+term_year = yc1.number_input(
+    "Year of the term's first class",
+    min_value=2000, max_value=2100, value=file_year, step=1,
+    help=f"The uploaded file's dates say {file_year}. Change this to move every date to the correct year.",
+)
+term_label = yc2.text_input("Term name (used in each sheet's title bar)", value=suggest_term_label(data_rows))
+term_label = term_label.strip().upper() or suggest_term_label(data_rows)
+
+if term_year != file_year:
+    data_rows = shift_rows_to_year(data_rows, int(term_year))
+    st.info(f"Dates shifted from {file_year} to {int(term_year)}.")
+first_start = min(c["start"] for c in data_rows)
+last_end = max(c["end"] for c in data_rows)
+st.caption(f"Term runs {first_start:%a %b %d, %Y} \u2192 {last_end:%a %b %d, %Y}.")
+
 # ----------------------------------------------------------------------------
 # Step 2: Editable Room / Time table (one row per course - not per weekday,
 # since a course meeting on multiple days uses the same room & time on all of them)
@@ -81,6 +104,11 @@ if "assignments_df2" not in st.session_state:
             "Time": "",
         })
     st.session_state["assignments_df2"] = pd.DataFrame(records)
+
+# Keep the Start/End columns in sync with the chosen year (rooms/times untouched)
+_df = st.session_state["assignments_df2"]
+_df["Start Date"] = [str(c["start"]) for c in data_rows]
+_df["End Date"] = [str(c["end"]) for c in data_rows]
 
 with st.form("assignment_form2"):
     edited_df = st.data_editor(
@@ -121,7 +149,7 @@ if generate_clicked:
         for _, row in edited_df.iterrows():
             assignments[int(row["Course Row"])] = {"room": row["Room"], "time": row["Time"]}
 
-        wb_out, placed_counts = build_workbook(data_rows, assignments, school_name=school_name)
+        wb_out, placed_counts = build_workbook(data_rows, assignments, school_name=school_name, term_label=term_label)
 
         out_buffer = io.BytesIO()
         wb_out.save(out_buffer)
