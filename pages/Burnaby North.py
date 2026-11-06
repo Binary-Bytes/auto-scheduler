@@ -10,27 +10,18 @@ from backend2 import (
 )
 
 st.set_page_config(page_title="Night School Weekday Schedule Auto-Filler", layout="wide")
+st.title("🌙 North Night School Scheduler")
+st.caption(
+    "Upload the course list, fill in Room + Time for each course, and get back one sheet "
+    "per weekday with every class's active weeks shaded automatically."
+)
 
 st.markdown(
     """
     <style>
-    .block-container { padding-top: 2rem; max-width: 1400px; }
-    .hero {
-        background: linear-gradient(135deg, #1F3864 0%, #2F5597 100%);
-        color: #fff; padding: 1.4rem 1.8rem; border-radius: 14px; margin-bottom: 1.2rem;
-        box-shadow: 0 4px 14px rgba(31,56,100,.25);
-    }
-    .hero h1 { color: #fff; margin: 0; font-size: 2rem; padding: 0; }
-    .hero p  { color: #D9E2F3; margin: .35rem 0 0 0; font-size: 1rem; }
-    h2, h3 { color: #1F3864; }
     div[data-testid="stForm"] { border: 2px solid #2F5597; border-radius: 12px; padding: 1rem 1.2rem; }
     .stButton > button, .stDownloadButton > button { border-radius: 10px; font-weight: 600; }
     </style>
-    <div class="hero">
-      <h1>🌙 North Night School Scheduler</h1>
-      <p>Upload the course list, add Room &amp; Time where you have them, and get one polished sheet per weekday
-         with every class's weeks shaded and its first (S) and last (E) day marked.</p>
-    </div>
     """,
     unsafe_allow_html=True,
 )
@@ -184,7 +175,7 @@ if generate_clicked:
     blank_time = int(edited_df["Time"].map(_clean).eq("").sum())
     if blank_room or blank_time:
         st.info(f"{blank_room} course(s) have no Room and {blank_time} have no Time - those cells are left blank in the file.")
-    st.caption("Each course's first class day is marked **S** and its last class day **E** on every weekday sheet it appears on.")
+    st.caption("Each course's first class day is marked **S** and its last class day **E** (on the one weekday sheet where each falls).")
 
     st.download_button(
         "⬇️ Download Weekday Schedule (.xlsx)",
