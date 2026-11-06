@@ -7,6 +7,7 @@ import openpyxl
 from backend2 import (
     load_data_rows, required_weekdays, build_workbook, WEEKDAY_NAMES,
     detect_start_year, shift_rows_to_year, suggest_term_label,
+    Theme, PRESET_ACCENTS, FONT_CHOICES, BORDER_CHOICES, DENSITY_CHOICES, DEFAULT_ACCENT,
 )
 
 st.set_page_config(page_title="Night School Weekday Schedule Auto-Filler", layout="wide")
@@ -92,6 +93,51 @@ last_end = max(c["end"] for c in data_rows)
 st.caption(f"Term runs {first_start:%a %b %d, %Y} \u2192 {last_end:%a %b %d, %Y}.")
 
 # ----------------------------------------------------------------------------
+# Appearance of the generated Excel file
+# ----------------------------------------------------------------------------
+with st.expander("🎨 Customise the Excel look (optional)"):
+    c1, c2, c3, c4 = st.columns([1.3, 1, 1, 1])
+    preset = c1.selectbox("Colour theme", list(PRESET_ACCENTS) + ["Custom colour..."], index=0)
+    if preset == "Custom colour...":
+        accent_in = c1.color_picker("Pick an accent colour", value="#" + DEFAULT_ACCENT)
+        c1.caption("Very light colours are automatically deepened so the white header text stays readable.")
+    else:
+        accent_in = PRESET_ACCENTS[preset]
+    font_choice = c2.selectbox("Font", FONT_CHOICES, index=0)
+    border_choice = c3.selectbox("Border weight", BORDER_CHOICES, index=0)
+    density_choice = c4.selectbox("Row height", DENSITY_CHOICES, index=1)
+    zebra_choice = st.checkbox("Alternate row shading (zebra stripes)", value=True)
+
+    theme = Theme(accent=accent_in, font=font_choice, border=border_choice,
+                  density=density_choice, zebra=zebra_choice)
+
+    # Mini preview built from the theme's real palette
+    _p = theme.palette
+    _row = lambda bg, cells: "".join(
+        f'<td style="background:{c};border:1px solid #A6A6A6;height:{18 if density_choice == "Compact" else 26 if density_choice == "Standard" else 34}px;'
+        f'text-align:center;color:#fff;font-weight:700;font-size:11px">{t}</td>' for c, t in cells)
+    _bw = 3 if border_choice == "Bold" else 2
+    st.markdown(
+        f"""
+        <div style="font-family:{font_choice},sans-serif;max-width:560px;border:{_bw}px solid #{_p['dark']};">
+          <div style="background:#{_p['dark']};color:#fff;text-align:center;font-weight:700;padding:6px">Night School &ndash; Room Schedule &ndash; Preview</div>
+          <table style="border-collapse:collapse;width:100%;font-size:12px">
+            <tr><td style="background:#{_p['accent']};color:#fff;font-weight:700;padding:4px 8px;border:1px solid #A6A6A6">Course</td>
+                <td style="background:#{_p['month']};color:#{_p['dark']};font-weight:700;text-align:center;border:1px solid #A6A6A6" colspan="6">JANUARY</td></tr>
+            <tr><td style="background:#{_p['accent']};border:1px solid #A6A6A6"></td>
+                {''.join(f'<td style="background:#{_p["date"]};color:#{_p["dark"]};font-weight:700;text-align:center;border:1px solid #A6A6A6">{d}</td>' for d in (4, 11, 18, 25, 1, 8))}</tr>
+            <tr><td style="padding:4px 8px;font-weight:700;border:1px solid #A6A6A6">Bookkeeping (MW)</td>
+                {_row('', [('#'+_p['accent'], 'S'), ('#'+_p['shade'], ''), ('#'+_p['shade'], ''), ('#'+_p['shade'], ''), ('#'+_p['shade'], ''), ('#'+_p['accent'], 'E')])}</tr>
+            <tr style="background:{'#' + _p['zebra'] if zebra_choice else 'transparent'}"><td style="padding:4px 8px;font-weight:700;border:1px solid #A6A6A6">Korean - Level 1 (M)</td>
+                {_row('', [('#'+_p['accent'], 'S'), ('#'+_p['shade'], ''), ('#'+_p['shade'], ''), ('#'+_p['shade'], ''), ('#'+_p['shade'], ''), ('#'+_p['accent'], 'E')])}</tr>
+          </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# ----------------------------------------------------------------------------
 # Step 2: Editable Room / Time table (one row per course - not per weekday,
 # since a course meeting on multiple days uses the same room & time on all of them)
 # ----------------------------------------------------------------------------
@@ -160,7 +206,7 @@ if generate_clicked:
         for _, row in edited_df.iterrows():
             assignments[int(row["Course Row"])] = {"room": _clean(row["Room"]), "time": _clean(row["Time"])}
 
-        wb_out, placed_counts = build_workbook(data_rows, assignments, school_name=school_name, term_label=term_label)
+        wb_out, placed_counts = build_workbook(data_rows, assignments, school_name=school_name, term_label=term_label, theme=theme)
 
         out_buffer = io.BytesIO()
         wb_out.save(out_buffer)
