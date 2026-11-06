@@ -29,50 +29,133 @@ FIRST_COURSE_ROW = 4
 
 
 # ----------------------------------------------------------------------------
-# STYLE CONSTANTS  (navy / slate palette - professional and print-friendly)
+# THEMING  (every look-and-feel choice lives in a Theme object that is passed
+# explicitly into the builders - no module-level state, so concurrent Streamlit
+# sessions can never affect each other's colours)
 # ----------------------------------------------------------------------------
-NAVY = "1F3864"
-BLUE = "2F5597"
-MONTH_BLUE = "D9E2F3"
-DATE_BLUE = "EEF2F9"
-SHADE_BLUE = "BDD0EC"
-ZEBRA = "F5F7FB"
-INK = "262626"
+WEEK_COL_WIDTH = 5.0   # near-square columns for the week-date grid (fits "S/E")
 
-TITLE_FONT = Font(name="Calibri", bold=True, size=16, color="FFFFFF")
-HEADER_FONT = Font(name="Calibri", bold=True, size=12, color="FFFFFF")
-MONTH_FONT = Font(name="Calibri", bold=True, size=11, color=NAVY)
-DATE_FONT = Font(name="Calibri", bold=True, size=10, color=NAVY)
-BODY_FONT = Font(name="Calibri", size=11, color=INK)
-COURSE_FONT = Font(name="Calibri", size=11, bold=True, color=INK)
-MARK_FONT = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-LEGEND_FONT = Font(name="Calibri", italic=True, size=10, color="595959")
+DEFAULT_ACCENT = "2F5597"
+
+# name -> accent colour. The default keeps its hand-tuned palette (see make_theme).
+PRESET_ACCENTS = {
+    "Classic Blue (default)": DEFAULT_ACCENT,
+    "Forest Green": "2E6B4A",
+    "Teal": "1F7A7A",
+    "Burgundy": "8B2635",
+    "Royal Purple": "5B3F8C",
+    "Burnt Orange": "B45309",
+    "Slate Grey": "475569",
+}
+FONT_CHOICES = ["Calibri", "Arial", "Cambria", "Tahoma"]
+BORDER_CHOICES = ["Standard", "Bold"]
+DENSITY_CHOICES = ["Compact", "Standard", "Spacious"]
+_BODY_HEIGHTS = {"Compact": 27, "Standard": 30, "Spacious": 38}
+
+# Hand-tuned palette that reproduces the original look exactly
+_DEFAULT_PALETTE = {
+    "dark": "1F3864", "accent": "2F5597", "month": "D9E2F3",
+    "date": "EEF2F9", "shade": "BDD0EC", "zebra": "F5F7FB",
+}
+
+
+def _hex_to_rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _rgb_to_hex(rgb):
+    return "".join(f"{max(0, min(255, round(v))):02X}" for v in rgb)
+
+
+def _mix(hex_color, other_rgb, t):
+    """Blend hex_color toward other_rgb by fraction t (0 = unchanged, 1 = fully other)."""
+    r, g, b = _hex_to_rgb(hex_color)
+    return _rgb_to_hex(tuple(c + (o - c) * t for c, o in zip((r, g, b), other_rgb)))
+
+
+def _luminance(hex_color):
+    def lin(c):
+        c /= 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (lin(v) for v in _hex_to_rgb(hex_color))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contrast_with_white(hex_color):
+    return 1.05 / (_luminance(hex_color) + 0.05)
+
+
+def normalize_accent(accent):
+    """Validates a hex colour; darkens it until white text on it is readable (WCAG AA)."""
+    h = (accent or DEFAULT_ACCENT).strip().lstrip("#")
+    if len(h) != 6 or any(ch not in "0123456789abcdefABCDEF" for ch in h):
+        h = DEFAULT_ACCENT
+    h = h.upper()
+    guard = 0
+    while _contrast_with_white(h) < 4.5 and guard < 40:
+        h = _mix(h, (0, 0, 0), 0.08)
+        guard += 1
+    return h
+
+
+def palette_for_accent(accent):
+    accent = normalize_accent(accent)
+    if accent == DEFAULT_ACCENT:
+        return dict(_DEFAULT_PALETTE)
+    white, black = (255, 255, 255), (0, 0, 0)
+    return {
+        "accent": accent,
+        "dark": _mix(accent, black, 0.33),
+        "month": _mix(accent, white, 0.82),
+        "date": _mix(accent, white, 0.92),
+        "shade": _mix(accent, white, 0.70),
+        "zebra": _mix(accent, white, 0.96),
+    }
+
+
+class Theme:
+    """All fonts / fills / borders / sizes used by the workbook builder."""
+
+    def __init__(self, accent=DEFAULT_ACCENT, font="Calibri", border="Standard",
+                 density="Standard", zebra=True):
+        self.palette = p = palette_for_accent(accent)
+        self.zebra_on = bool(zebra)
+        font = font if font in FONT_CHOICES else "Calibri"
+        ink = "262626"
+
+        self.title_font = Font(name=font, bold=True, size=16, color="FFFFFF")
+        self.header_font = Font(name=font, bold=True, size=12, color="FFFFFF")
+        self.month_font = Font(name=font, bold=True, size=11, color=p["dark"])
+        self.date_font = Font(name=font, bold=True, size=10, color=p["dark"])
+        body_size = 10 if density == "Compact" else 11   # keeps two-line course names fully visible
+        self.body_font = Font(name=font, size=body_size, color=ink)
+        self.course_font = Font(name=font, size=body_size, bold=True, color=ink)
+        self.mark_font = Font(name=font, size=10, bold=True, color="FFFFFF")
+        self.legend_font = Font(name=font, italic=True, size=10, color="595959")
+
+        solid = lambda c: PatternFill(patternType="solid", fgColor=c)
+        self.title_fill = solid(p["dark"])
+        self.header_fill = solid(p["accent"])
+        self.month_fill = solid(p["month"])
+        self.date_fill = solid(p["date"])
+        self.zebra_fill = solid(p["zebra"])
+        self.mark_fill = solid(p["accent"])
+        self.shade_fill = solid(p["shade"])
+
+        self.thin_side = Side(style="thin", color="A6A6A6")
+        self.outer_side = Side(style="thick" if border == "Bold" else "medium", color=p["dark"])
+
+        self.title_row_height = 32
+        self.header_row_height = 24
+        self.date_row_height = 18
+        self.body_row_height = _BODY_HEIGHTS.get(density, 30)
+
+
+DEFAULT_THEME = Theme()
 
 CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 LEFT_WRAP = Alignment(horizontal="left", vertical="center", wrap_text=True)
-
-THIN_SIDE = Side(style="thin", color="A6A6A6")
-OUTER_SIDE = Side(style="medium", color=NAVY)      # outer frame, header base, month dividers
-THIN_BORDER = Border(left=THIN_SIDE, right=THIN_SIDE, top=THIN_SIDE, bottom=THIN_SIDE)
-
-TITLE_FILL = PatternFill(patternType="solid", fgColor=NAVY)
-HEADER_FILL = PatternFill(patternType="solid", fgColor=BLUE)
-MONTH_FILL = PatternFill(patternType="solid", fgColor=MONTH_BLUE)
-DATE_FILL = PatternFill(patternType="solid", fgColor=DATE_BLUE)
-ZEBRA_FILL = PatternFill(patternType="solid", fgColor=ZEBRA)
-MARK_FILL = PatternFill(patternType="solid", fgColor=BLUE)
-
-WEEK_COL_WIDTH = 5.0   # near-square columns for the week-date grid (fits "S/E")
-TITLE_ROW_HEIGHT = 32
-DATE_ROW_HEIGHT = 18
-HEADER_ROW_HEIGHT = 24
-BODY_ROW_HEIGHT = 30
-
-
-
-
-def make_shade_fill():
-    return PatternFill(patternType="solid", fgColor=SHADE_BLUE)
 
 
 def weekday_for_code(ch):
@@ -261,10 +344,11 @@ def group_dates_by_month(dates):
 # ----------------------------------------------------------------------------
 # WORKBOOK CONSTRUCTION
 # ----------------------------------------------------------------------------
-def build_sheet_for_weekday(wb, weekday_idx, dates, school_name="Night School", term_label="FALL"):
+def build_sheet_for_weekday(wb, weekday_idx, dates, school_name="Night School", term_label="FALL",
+                            theme=DEFAULT_THEME):
     weekday_name = WEEKDAY_NAMES[weekday_idx]
     ws = wb.create_sheet(title=weekday_name)
-    ws.sheet_properties.tabColor = NAVY
+    ws.sheet_properties.tabColor = theme.palette["dark"]
 
     year_label = dates[0].year if dates else datetime.now().year
     last_col = FIRST_WEEK_COL + max(len(dates) - 1, 0)
@@ -275,18 +359,18 @@ def build_sheet_for_weekday(wb, weekday_idx, dates, school_name="Night School", 
                          value=f"{school_name} \u2013 Room Schedule \u2013 {term_label} {year_label} \u2013 {weekday_name}")
     ws.merge_cells(start_row=TITLE_ROW, start_column=1, end_row=TITLE_ROW, end_column=full_last_col)
     for c in range(1, full_last_col + 1):
-        ws.cell(row=TITLE_ROW, column=c).fill = TITLE_FILL
-    title_cell.font = TITLE_FONT
+        ws.cell(row=TITLE_ROW, column=c).fill = theme.title_fill
+    title_cell.font = theme.title_font
     title_cell.alignment = CENTER
-    ws.row_dimensions[TITLE_ROW].height = TITLE_ROW_HEIGHT
+    ws.row_dimensions[TITLE_ROW].height = theme.title_row_height
 
     # Fixed columns: header text spans the month row + date row
     for i, label in enumerate(HEADER_COLS, start=1):
         cell = ws.cell(row=HEADER_ROW, column=i, value=label)
-        ws.cell(row=DATE_ROW, column=i).fill = HEADER_FILL
-        cell.font = HEADER_FONT
+        ws.cell(row=DATE_ROW, column=i).fill = theme.header_fill
+        cell.font = theme.header_font
         cell.alignment = CENTER
-        cell.fill = HEADER_FILL
+        cell.fill = theme.header_fill
         ws.merge_cells(start_row=HEADER_ROW, start_column=i, end_row=DATE_ROW, end_column=i)
 
     # Month header + date row
@@ -295,21 +379,21 @@ def build_sheet_for_weekday(wb, weekday_idx, dates, school_name="Night School", 
         start_col = col
         for d in month_dates:
             dcell = ws.cell(row=DATE_ROW, column=col, value=d.day)
-            dcell.font = DATE_FONT
+            dcell.font = theme.date_font
             dcell.alignment = CENTER
-            dcell.fill = DATE_FILL
-            ws.cell(row=HEADER_ROW, column=col).fill = MONTH_FILL
+            dcell.fill = theme.date_fill
+            ws.cell(row=HEADER_ROW, column=col).fill = theme.month_fill
             col += 1
         end_col = col - 1
         cell = ws.cell(row=HEADER_ROW, column=start_col, value=month_label)
-        cell.font = MONTH_FONT
+        cell.font = theme.month_font
         cell.alignment = CENTER
-        cell.fill = MONTH_FILL
+        cell.fill = theme.month_fill
         if end_col > start_col:
             ws.merge_cells(start_row=HEADER_ROW, start_column=start_col, end_row=HEADER_ROW, end_column=end_col)
 
-    ws.row_dimensions[HEADER_ROW].height = HEADER_ROW_HEIGHT
-    ws.row_dimensions[DATE_ROW].height = DATE_ROW_HEIGHT
+    ws.row_dimensions[HEADER_ROW].height = theme.header_row_height
+    ws.row_dimensions[DATE_ROW].height = theme.date_row_height
     return ws
 
 
@@ -332,7 +416,7 @@ def first_and_last_class_dates(course):
     return first, last
 
 
-def add_course_row(ws, row_idx, course, room, time_str, dates_for_weekday, weekday_idx):
+def add_course_row(ws, row_idx, course, room, time_str, dates_for_weekday, weekday_idx, theme=DEFAULT_THEME):
     """
     Writes one course row. Week cells inside the course's date range are shaded;
     "S" marks the course's very first class day and "E" its very last (or "S/E"
@@ -350,29 +434,26 @@ def add_course_row(ws, row_idx, course, room, time_str, dates_for_weekday, weekd
         time_str,
         course['notes'],
     ]
-    zebra = ZEBRA_FILL if (row_idx - FIRST_COURSE_ROW) % 2 == 1 else None
+    zebra = theme.zebra_fill if (theme.zebra_on and (row_idx - FIRST_COURSE_ROW) % 2 == 1) else None
     for col_idx, val in enumerate(values, start=1):
         cell = ws.cell(row=row_idx, column=col_idx, value=val if val != "" else None)
-        cell.font = COURSE_FONT if col_idx == 1 else BODY_FONT
+        cell.font = theme.course_font if col_idx == 1 else theme.body_font
         cell.alignment = LEFT_WRAP if col_idx in (1, 8) else CENTER
         if zebra:
             cell.fill = zebra
 
     ws.cell(row=row_idx, column=5).number_format = "d-mmm-yyyy"
     ws.cell(row=row_idx, column=6).number_format = "d-mmm-yyyy"
-    ws.row_dimensions[row_idx].height = BODY_ROW_HEIGHT
+    ws.row_dimensions[row_idx].height = theme.body_row_height
 
     active = [i for i, d in enumerate(dates_for_weekday) if course['start'] <= d <= course['end']]
-    shade = make_shade_fill()
     for i in range(len(dates_for_weekday)):
         wcell = ws.cell(row=row_idx, column=FIRST_WEEK_COL + i)
         if i in active:
-            wcell.fill = shade
+            wcell.fill = theme.shade_fill
         elif zebra:
             wcell.fill = zebra
 
-    # S / E go ONLY on the date of the course's true first / last class day,
-    # i.e. on exactly one weekday sheet each (S/E if it is a single-day course).
     first_day, last_day = first_and_last_class_dates(course)
     for i, d in enumerate(dates_for_weekday):
         is_first = d == first_day
@@ -381,27 +462,28 @@ def add_course_row(ws, row_idx, course, room, time_str, dates_for_weekday, weekd
             continue
         text = "S/E" if (is_first and is_last) else ("S" if is_first else "E")
         mcell = ws.cell(row=row_idx, column=FIRST_WEEK_COL + i, value=text)
-        mcell.font = MARK_FONT
-        mcell.fill = MARK_FILL
+        mcell.font = theme.mark_font
+        mcell.fill = theme.mark_fill
         mcell.alignment = CENTER
     return len(active)
 
 
-def add_legend(ws, row_idx):
+def add_legend(ws, row_idx, theme=DEFAULT_THEME):
     cell = ws.cell(row=row_idx, column=1,
                    value="S = first class day     E = last class day     Shaded = class running that week")
-    cell.font = LEGEND_FONT
+    cell.font = theme.legend_font
     cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
 
 
-def apply_table_borders(ws, last_row, last_col, month_end_cols):
-    """Thin grey grid inside, medium navy frame + dividers (header base, fixed/week split, months)."""
+def apply_table_borders(ws, last_row, last_col, month_end_cols, theme=DEFAULT_THEME):
+    """Thin grey grid inside, heavier themed frame + dividers (header base, fixed/week split, months)."""
+    THIN, OUTER = theme.thin_side, theme.outer_side
     for r in range(HEADER_ROW, last_row + 1):
         for c in range(1, last_col + 1):
-            left = OUTER_SIDE if c == 1 else THIN_SIDE
-            right = OUTER_SIDE if (c == last_col or c == FIRST_WEEK_COL - 1 or c in month_end_cols) else THIN_SIDE
-            top = OUTER_SIDE if r == HEADER_ROW else THIN_SIDE
-            bottom = OUTER_SIDE if (r == DATE_ROW or r == last_row) else THIN_SIDE
+            left = OUTER if c == 1 else THIN
+            right = OUTER if (c == last_col or c == FIRST_WEEK_COL - 1 or c in month_end_cols) else THIN
+            top = OUTER if r == HEADER_ROW else THIN
+            bottom = OUTER if (r == DATE_ROW or r == last_row) else THIN
             ws.cell(row=r, column=c).border = Border(left=left, right=right, top=top, bottom=bottom)
 
 
@@ -438,7 +520,8 @@ def setup_print_and_view(ws):
     ws.page_margins.left = ws.page_margins.right = 0.4
 
 
-def build_workbook(data_rows, assignments, school_name="Night School", term_label="FALL"):
+def build_workbook(data_rows, assignments, school_name="Night School", term_label="FALL", theme=None):
+    theme = theme or DEFAULT_THEME
     wb = Workbook()
     wb.remove(wb.active)
 
@@ -449,7 +532,8 @@ def build_workbook(data_rows, assignments, school_name="Night School", term_labe
 
     for weekday_idx in needed_weekdays:
         dates = week_dates_for_weekday(weekday_idx, term_min_start, term_max_end)
-        ws = build_sheet_for_weekday(wb, weekday_idx, dates, school_name=school_name, term_label=term_label)
+        ws = build_sheet_for_weekday(wb, weekday_idx, dates, school_name=school_name,
+                                     term_label=term_label, theme=theme)
 
         row_idx = FIRST_COURSE_ROW
         for course in data_rows:
@@ -458,7 +542,7 @@ def build_workbook(data_rows, assignments, school_name="Night School", term_labe
             assignment = assignments.get(course['row'], {})
             room = assignment.get('room', '') or ''
             time_str = assignment.get('time', '') or ''
-            placed = add_course_row(ws, row_idx, course, room, time_str, dates, weekday_idx)
+            placed = add_course_row(ws, row_idx, course, room, time_str, dates, weekday_idx, theme)
             placed_counts[(course['row'], weekday_idx)] = placed
             row_idx += 1
 
@@ -466,14 +550,14 @@ def build_workbook(data_rows, assignments, school_name="Night School", term_labe
         last_week_col = FIRST_WEEK_COL + max(len(dates) - 1, 0)
         last_col = max(last_week_col, 8)
 
-        # Column index of the last week of each month (except the final month) -> medium divider
+        # Column index of the last week of each month (except the final month) -> heavier divider
         month_end_cols, curr_col = set(), FIRST_WEEK_COL
         for _, month_dates in group_dates_by_month(dates)[:-1]:
             curr_col += len(month_dates)
             month_end_cols.add(curr_col - 1)
 
-        apply_table_borders(ws, last_table_row, last_col, month_end_cols)
-        add_legend(ws, last_table_row + 2)
+        apply_table_borders(ws, last_table_row, last_col, month_end_cols, theme)
+        add_legend(ws, last_table_row + 2, theme)
         style_columns(ws, last_week_col)
         setup_print_and_view(ws)
 
