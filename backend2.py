@@ -15,6 +15,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.styles.colors import Color
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.properties import PageSetupProperties
 
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 CODE_TO_WEEKDAY = {'M': 0, 'T': 1, 'W': 2, 'R': 3, 'F': 4, 'S': 5}  # anything else -> 6 (Sunday)
@@ -26,35 +27,52 @@ HEADER_ROW = 2
 DATE_ROW = 3
 FIRST_COURSE_ROW = 4
 
+
 # ----------------------------------------------------------------------------
-# STYLE CONSTANTS
+# STYLE CONSTANTS  (navy / slate palette - professional and print-friendly)
 # ----------------------------------------------------------------------------
-TITLE_FONT = Font(name="Calibri", bold=True, size=14)
-HEADER_FONT = Font(name="Calibri", bold=True, size=12)
-MONTH_FONT = Font(name="Calibri", bold=True, size=11)
-DATE_FONT = Font(name="Calibri", bold=True, size=10)
-BODY_FONT = Font(name="Calibri", size=11)
-LEGEND_FONT = Font(name="Calibri", italic=True, size=9)
+NAVY = "1F3864"
+BLUE = "2F5597"
+MONTH_BLUE = "D9E2F3"
+DATE_BLUE = "EEF2F9"
+SHADE_BLUE = "BDD0EC"
+ZEBRA = "F5F7FB"
+INK = "262626"
+
+TITLE_FONT = Font(name="Calibri", bold=True, size=16, color="FFFFFF")
+HEADER_FONT = Font(name="Calibri", bold=True, size=12, color="FFFFFF")
+MONTH_FONT = Font(name="Calibri", bold=True, size=11, color=NAVY)
+DATE_FONT = Font(name="Calibri", bold=True, size=10, color=NAVY)
+BODY_FONT = Font(name="Calibri", size=11, color=INK)
+COURSE_FONT = Font(name="Calibri", size=11, bold=True, color=INK)
+MARK_FONT = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+LEGEND_FONT = Font(name="Calibri", italic=True, size=10, color="595959")
 
 CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 LEFT_WRAP = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
-THIN_SIDE = Side(style="thin", color="BFBFBF")
-THICK_SIDE = Side(style="medium", color="000000")  # Clean, pronounced month separator
+THIN_SIDE = Side(style="thin", color="A6A6A6")
+OUTER_SIDE = Side(style="medium", color=NAVY)      # outer frame, header base, month dividers
 THIN_BORDER = Border(left=THIN_SIDE, right=THIN_SIDE, top=THIN_SIDE, bottom=THIN_SIDE)
 
-HEADER_FILL = PatternFill(patternType="solid", fgColor="D9D9D9")
-MONTH_FILL = PatternFill(patternType="solid", fgColor="EDEDED")
+TITLE_FILL = PatternFill(patternType="solid", fgColor=NAVY)
+HEADER_FILL = PatternFill(patternType="solid", fgColor=BLUE)
+MONTH_FILL = PatternFill(patternType="solid", fgColor=MONTH_BLUE)
+DATE_FILL = PatternFill(patternType="solid", fgColor=DATE_BLUE)
+ZEBRA_FILL = PatternFill(patternType="solid", fgColor=ZEBRA)
+MARK_FILL = PatternFill(patternType="solid", fgColor=BLUE)
 
-WEEK_COL_WIDTH = 4.3   # narrow, near-square columns for the week-date grid
-DATE_ROW_HEIGHT = 16
-HEADER_ROW_HEIGHT = 20
-BODY_ROW_HEIGHT = 28
+WEEK_COL_WIDTH = 5.0   # near-square columns for the week-date grid (fits "S/E")
+TITLE_ROW_HEIGHT = 32
+DATE_ROW_HEIGHT = 18
+HEADER_ROW_HEIGHT = 24
+BODY_ROW_HEIGHT = 30
+
+
 
 
 def make_shade_fill():
-    # Matches the "Background 1, Darker 15%" preset used in the real reference file
-    return PatternFill(patternType="solid", fgColor=Color(theme=0, tint=-0.1499984740745262, type="theme"))
+    return PatternFill(patternType="solid", fgColor=SHADE_BLUE)
 
 
 def weekday_for_code(ch):
@@ -239,31 +257,39 @@ def group_dates_by_month(dates):
     return groups
 
 
+
 # ----------------------------------------------------------------------------
 # WORKBOOK CONSTRUCTION
 # ----------------------------------------------------------------------------
 def build_sheet_for_weekday(wb, weekday_idx, dates, school_name="Night School", term_label="FALL"):
     weekday_name = WEEKDAY_NAMES[weekday_idx]
     ws = wb.create_sheet(title=weekday_name)
+    ws.sheet_properties.tabColor = NAVY
 
     year_label = dates[0].year if dates else datetime.now().year
     last_col = FIRST_WEEK_COL + max(len(dates) - 1, 0)
+    full_last_col = max(last_col, 8)
 
+    # Title band
     title_cell = ws.cell(row=TITLE_ROW, column=1,
-                          value=f"{school_name} \u2013 Room Schedule \u2013 {term_label} {year_label} \u2013 {weekday_name}")
-    ws.merge_cells(start_row=TITLE_ROW, start_column=1, end_row=TITLE_ROW, end_column=max(last_col, 8))
+                         value=f"{school_name} \u2013 Room Schedule \u2013 {term_label} {year_label} \u2013 {weekday_name}")
+    ws.merge_cells(start_row=TITLE_ROW, start_column=1, end_row=TITLE_ROW, end_column=full_last_col)
+    for c in range(1, full_last_col + 1):
+        ws.cell(row=TITLE_ROW, column=c).fill = TITLE_FILL
     title_cell.font = TITLE_FONT
     title_cell.alignment = CENTER
-    ws.row_dimensions[TITLE_ROW].height = 24
+    ws.row_dimensions[TITLE_ROW].height = TITLE_ROW_HEIGHT
 
+    # Fixed columns: header text spans the month row + date row
     for i, label in enumerate(HEADER_COLS, start=1):
         cell = ws.cell(row=HEADER_ROW, column=i, value=label)
+        ws.cell(row=DATE_ROW, column=i).fill = HEADER_FILL
         cell.font = HEADER_FONT
         cell.alignment = CENTER
         cell.fill = HEADER_FILL
-        cell.border = THIN_BORDER
+        ws.merge_cells(start_row=HEADER_ROW, start_column=i, end_row=DATE_ROW, end_column=i)
 
-    # month header + date row
+    # Month header + date row
     col = FIRST_WEEK_COL
     for month_label, month_dates in group_dates_by_month(dates):
         start_col = col
@@ -271,27 +297,28 @@ def build_sheet_for_weekday(wb, weekday_idx, dates, school_name="Night School", 
             dcell = ws.cell(row=DATE_ROW, column=col, value=d.day)
             dcell.font = DATE_FONT
             dcell.alignment = CENTER
-            dcell.border = THIN_BORDER
-            hcell = ws.cell(row=HEADER_ROW, column=col)
-            hcell.fill = MONTH_FILL
-            hcell.border = THIN_BORDER
+            dcell.fill = DATE_FILL
+            ws.cell(row=HEADER_ROW, column=col).fill = MONTH_FILL
             col += 1
         end_col = col - 1
         cell = ws.cell(row=HEADER_ROW, column=start_col, value=month_label)
         cell.font = MONTH_FONT
         cell.alignment = CENTER
         cell.fill = MONTH_FILL
-        cell.border = THIN_BORDER
         if end_col > start_col:
             ws.merge_cells(start_row=HEADER_ROW, start_column=start_col, end_row=HEADER_ROW, end_column=end_col)
 
     ws.row_dimensions[HEADER_ROW].height = HEADER_ROW_HEIGHT
     ws.row_dimensions[DATE_ROW].height = DATE_ROW_HEIGHT
-
     return ws
 
 
 def add_course_row(ws, row_idx, course, room, time_str, dates_for_weekday, weekday_idx):
+    """
+    Writes one course row. Week cells inside the course's date range are shaded;
+    the first occurrence of this weekday gets "S" (start) and the last gets "E"
+    (end) - or "S/E" when the course only meets once on this weekday.
+    """
     days_suffix = f" ({course['days']})" if course['days'] else ""
 
     values = [
@@ -304,33 +331,56 @@ def add_course_row(ws, row_idx, course, room, time_str, dates_for_weekday, weekd
         time_str,
         course['notes'],
     ]
+    zebra = ZEBRA_FILL if (row_idx - FIRST_COURSE_ROW) % 2 == 1 else None
     for col_idx, val in enumerate(values, start=1):
-        cell = ws.cell(row=row_idx, column=col_idx, value=val)
-        cell.font = BODY_FONT
-        cell.border = THIN_BORDER
+        cell = ws.cell(row=row_idx, column=col_idx, value=val if val != "" else None)
+        cell.font = COURSE_FONT if col_idx == 1 else BODY_FONT
         cell.alignment = LEFT_WRAP if col_idx in (1, 8) else CENTER
+        if zebra:
+            cell.fill = zebra
 
     ws.cell(row=row_idx, column=5).number_format = "d-mmm-yyyy"
     ws.cell(row=row_idx, column=6).number_format = "d-mmm-yyyy"
-
     ws.row_dimensions[row_idx].height = BODY_ROW_HEIGHT
 
+    active = [i for i, d in enumerate(dates_for_weekday) if course['start'] <= d <= course['end']]
     shade = make_shade_fill()
-    placed = 0
-    for i, d in enumerate(dates_for_weekday):
-        col = FIRST_WEEK_COL + i
-        wcell = ws.cell(row=row_idx, column=col)
-        wcell.border = THIN_BORDER
-        if course['start'] <= d <= course['end']:
+    for i in range(len(dates_for_weekday)):
+        wcell = ws.cell(row=row_idx, column=FIRST_WEEK_COL + i)
+        if i in active:
             wcell.fill = shade
-            placed += 1
-    return placed
+        elif zebra:
+            wcell.fill = zebra
+
+    if active:
+        first_i, last_i = active[0], active[-1]
+        for idx, text in ((first_i, "S/E" if first_i == last_i else "S"),
+                          (last_i, None if first_i == last_i else "E")):
+            if text is None:
+                continue
+            mcell = ws.cell(row=row_idx, column=FIRST_WEEK_COL + idx, value=text)
+            mcell.font = MARK_FONT
+            mcell.fill = MARK_FILL
+            mcell.alignment = CENTER
+    return len(active)
 
 
 def add_legend(ws, row_idx):
-    cell = ws.cell(row=row_idx, column=1, value="S = Start of course, X = End of course, E = School closed "
-                                                 "(enter manually on the relevant week as needed)")
+    cell = ws.cell(row=row_idx, column=1,
+                   value="S = first class day     E = last class day     Shaded = class running that week")
     cell.font = LEGEND_FONT
+    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+
+
+def apply_table_borders(ws, last_row, last_col, month_end_cols):
+    """Thin grey grid inside, medium navy frame + dividers (header base, fixed/week split, months)."""
+    for r in range(HEADER_ROW, last_row + 1):
+        for c in range(1, last_col + 1):
+            left = OUTER_SIDE if c == 1 else THIN_SIDE
+            right = OUTER_SIDE if (c == last_col or c == FIRST_WEEK_COL - 1 or c in month_end_cols) else THIN_SIDE
+            top = OUTER_SIDE if r == HEADER_ROW else THIN_SIDE
+            bottom = OUTER_SIDE if (r == DATE_ROW or r == last_row) else THIN_SIDE
+            ws.cell(row=r, column=c).border = Border(left=left, right=right, top=top, bottom=bottom)
 
 
 def enable_wrap_text_everywhere(wb):
@@ -341,19 +391,29 @@ def enable_wrap_text_everywhere(wb):
                 cell.alignment = Alignment(
                     horizontal=existing.horizontal,
                     vertical=existing.vertical or "center",
-                    wrap_text=True,
+                    wrap_text=True if cell.row != ws.max_row else existing.wrap_text,
                     text_rotation=existing.text_rotation,
                     indent=existing.indent,
                 )
 
 
 def style_columns(ws, last_week_col):
-    fixed_widths = {1: 26, 2: 12, 3: 8, 4: 16, 5: 13, 6: 13, 7: 11, 8: 22}
+    fixed_widths = {1: 30, 2: 12, 3: 9, 4: 16, 5: 13, 6: 13, 7: 12, 8: 24}
     for col, width in fixed_widths.items():
         ws.column_dimensions[get_column_letter(col)].width = width
-
     for col in range(FIRST_WEEK_COL, last_week_col + 1):
         ws.column_dimensions[get_column_letter(col)].width = WEEK_COL_WIDTH
+
+
+def setup_print_and_view(ws):
+    ws.sheet_view.showGridLines = False
+    ws.freeze_panes = ws.cell(row=FIRST_COURSE_ROW, column=2)   # keep headers + course name visible
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    ws.print_title_rows = f"{TITLE_ROW}:{DATE_ROW}"
+    ws.page_margins.left = ws.page_margins.right = 0.4
 
 
 def build_workbook(data_rows, assignments, school_name="Night School", term_label="FALL"):
@@ -374,39 +434,26 @@ def build_workbook(data_rows, assignments, school_name="Night School", term_labe
             if weekday_idx not in weekdays_for_days_string(course['days']):
                 continue
             assignment = assignments.get(course['row'], {})
-            room = assignment.get('room', '')
-            time_str = assignment.get('time', '')
+            room = assignment.get('room', '') or ''
+            time_str = assignment.get('time', '') or ''
             placed = add_course_row(ws, row_idx, course, room, time_str, dates, weekday_idx)
             placed_counts[(course['row'], weekday_idx)] = placed
             row_idx += 1
 
-        add_legend(ws, row_idx + 1)
-
+        last_table_row = row_idx - 1
         last_week_col = FIRST_WEEK_COL + max(len(dates) - 1, 0)
-        style_columns(ws, last_week_col)
-        
-        # --------------------------------------------------------------------
-        # Stylistic Pass: Apply Thick Right Border Between Distinct Months
-        # --------------------------------------------------------------------
-        curr_col = FIRST_WEEK_COL
-        month_groups = group_dates_by_month(dates)
-        
-        # We don't need a right border on the very last month column group
-        for _, month_dates in month_groups[:-1]:
-            curr_col += len(month_dates)
-            target_col_idx = curr_col - 1
-            
-            # Apply down through headers, dates, and all scheduled data rows
-            for r in range(HEADER_ROW, row_idx):
-                cell = ws.cell(row=r, column=target_col_idx)
-                cell.border = Border(
-                    left=cell.border.left,
-                    top=cell.border.top,
-                    bottom=cell.border.bottom,
-                    right=THICK_SIDE
-                )
+        last_col = max(last_week_col, 8)
 
-        ws.sheet_view.showGridLines = False
+        # Column index of the last week of each month (except the final month) -> medium divider
+        month_end_cols, curr_col = set(), FIRST_WEEK_COL
+        for _, month_dates in group_dates_by_month(dates)[:-1]:
+            curr_col += len(month_dates)
+            month_end_cols.add(curr_col - 1)
+
+        apply_table_borders(ws, last_table_row, last_col, month_end_cols)
+        add_legend(ws, last_table_row + 2)
+        style_columns(ws, last_week_col)
+        setup_print_and_view(ws)
 
     enable_wrap_text_everywhere(wb)
     return wb, placed_counts
