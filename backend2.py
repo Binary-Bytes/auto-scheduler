@@ -313,11 +313,30 @@ def build_sheet_for_weekday(wb, weekday_idx, dates, school_name="Night School", 
     return ws
 
 
+def first_and_last_class_dates(course):
+    """
+    The course's real first and last class days: the earliest / latest date inside
+    [start, end] that falls on one of the weekdays the course meets (so a Mon-Thu
+    course starting on Mon 4 Jan has its first class on 4 Jan only, not on every
+    weekday sheet).
+    """
+    wds = weekdays_for_days_string(course['days'])
+    first = last = None
+    d = course['start']
+    while d <= course['end']:
+        if d.weekday() in wds:
+            if first is None:
+                first = d
+            last = d
+        d += timedelta(days=1)
+    return first, last
+
+
 def add_course_row(ws, row_idx, course, room, time_str, dates_for_weekday, weekday_idx):
     """
     Writes one course row. Week cells inside the course's date range are shaded;
-    the first occurrence of this weekday gets "S" (start) and the last gets "E"
-    (end) - or "S/E" when the course only meets once on this weekday.
+    "S" marks the course's very first class day and "E" its very last (or "S/E"
+    if both are the same day) - each appears on only one weekday sheet.
     """
     days_suffix = f" ({course['days']})" if course['days'] else ""
 
@@ -352,16 +371,19 @@ def add_course_row(ws, row_idx, course, room, time_str, dates_for_weekday, weekd
         elif zebra:
             wcell.fill = zebra
 
-    if active:
-        first_i, last_i = active[0], active[-1]
-        for idx, text in ((first_i, "S/E" if first_i == last_i else "S"),
-                          (last_i, None if first_i == last_i else "E")):
-            if text is None:
-                continue
-            mcell = ws.cell(row=row_idx, column=FIRST_WEEK_COL + idx, value=text)
-            mcell.font = MARK_FONT
-            mcell.fill = MARK_FILL
-            mcell.alignment = CENTER
+    # S / E go ONLY on the date of the course's true first / last class day,
+    # i.e. on exactly one weekday sheet each (S/E if it is a single-day course).
+    first_day, last_day = first_and_last_class_dates(course)
+    for i, d in enumerate(dates_for_weekday):
+        is_first = d == first_day
+        is_last = d == last_day
+        if not (is_first or is_last):
+            continue
+        text = "S/E" if (is_first and is_last) else ("S" if is_first else "E")
+        mcell = ws.cell(row=row_idx, column=FIRST_WEEK_COL + i, value=text)
+        mcell.font = MARK_FONT
+        mcell.fill = MARK_FILL
+        mcell.alignment = CENTER
     return len(active)
 
 
